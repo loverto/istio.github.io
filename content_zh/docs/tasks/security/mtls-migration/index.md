@@ -15,7 +15,13 @@ keywords: [security,authentication,migration]
 
 * 已成功在 Kubernetes 集群中部署 Istio，并且没有启用双向 TLS 支持（也就是使用[安装步骤](/zh/docs/setup/kubernetes/quick-start/#安装步骤)中所说的 `install/kubernetes/istio-demo.yaml` 进行部署，或者在 [Helm 安装](/zh/docs/setup/kubernetes/helm-install/)时设置 `global.mtls.enabled` 的值为 false）。
 
-* 为了演示目的，创建三个命名空间，分别是 `foo`、`bar` 以及 `legacy`，然后在 `foo`、`bar` 中分别部署注入 Istio sidecar 的 [httpbin]({{< github_tree >}}/samples/httpbin) 以及 [sleep]({{< github_tree >}}/samples/sleep) 应用，最后在 `legacy` 命名空间中运行未经注入的 sleep 应用。
+* 为了演示目的
+    * 创建以下命名空间并在这两个中部署注入 Istio sidecar 的 [httpbin]({{< github_tree >}}/samples/httpbin) 以及 [sleep]({{< github_tree >}}/samples/sleep) 应用。
+        * `foo`
+        * `bar`
+
+    * 创建以下命名空间并在在命名空间中运行未经注入的 [sleep]({{< github_tree >}}/samples/sleep) 应用。
+        * `legacy` 
 
     {{< text bash >}}
     $ kubectl create ns foo
@@ -42,45 +48,21 @@ keywords: [security,authentication,migration]
     {{< text bash >}}
     $ kubectl get policies.authentication.istio.io --all-namespaces
     No resources found.
-    $ kubectl get destinationrule --all-namespaces
-    No resources found.
     {{< /text >}}
 
-## 配置服务器使其同时能接收双向 TLS 以及明文流量
-
-在认证策略中有一个 `PERMISSIVE` 模式，这种模式让服务器能够同时接收明文和双向 TLS 流量。下面就把服务器设置为这种模式：
-
-{{< text bash >}}
-$ cat <<EOF | istioctl create -n foo -f -
-apiVersion: "authentication.istio.io/v1alpha1"
-kind: "Policy"
-metadata:
-  name: "example-httpbin-permissive"
-  namespace: foo
-spec:
-  targets:
-  - name: httpbin
-    peers:
-  - mtls:
-      mode: PERMISSIVE
-EOF
-{{< /text >}}
-
-接下来再次发送流量到 `httpbin.foo`，确认所有请求依旧成功。
-
-{{< text bash >}}
-$ for from in "foo" "bar" "legacy"; do kubectl exec $(kubectl get pod -l app=sleep -n ${from} -o jsonpath={.items..metadata.name}) -c sleep -n ${from} -- curl http://httpbin.foo:8000/ip -s -o /dev/null -w "sleep.${from} to httpbin.foo: %{http_code}\n"; done
-200
-200
-200
-{{< /text >}}
+    {{< text bash >}}
+    $ kubectl get destinationrule --all-namespaces
+    NAMESPACE      NAME              AGE
+    istio-system   istio-policy      25m
+    istio-system   istio-telemetry   25m
+    {{< /text >}}
 
 ## 配置客户端进行双向 TLS 通信
 
 利用设置 `DestinationRule` 的方式，让 Istio 服务进行双向 TLS 通信。
 
 {{< text bash >}}
-$ cat <<EOF | istioctl create -n foo -f -
+$ cat <<EOF | kubectl apply -n foo -f -
 apiVersion: "networking.istio.io/v1alpha3"
 kind: "DestinationRule"
 metadata:
@@ -111,7 +93,7 @@ $ for from in "foo" "bar" "legacy"; do kubectl exec $(kubectl get pod -l app=sle
 把所有进行过 sidecar 注入的客户端到服务器流量都迁移到双向 TLS 之后，就可以设置 `httpbin.foo` 只支持双向 TLS 流量了。
 
 {{< text bash >}}
-$ cat <<EOF | istioctl create -n foo -f -
+$ cat <<EOF | kubectl apply -n foo -f -
 apiVersion: "authentication.istio.io/v1alpha1"
 kind: "Policy"
 metadata:
@@ -120,7 +102,7 @@ metadata:
 spec:
   targets:
   - name: httpbin
-    peers:
+  peers:
   - mtls:
       mode: STRICT
 EOF
